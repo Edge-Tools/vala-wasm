@@ -1,0 +1,39 @@
+# Meson cross file for emscripten. Used by GLib + any meson sub-dep.
+# Mirrors what `emcmake cmake` does for cmake builds, but for meson.
+[binaries]
+c       = ['emcc']
+cpp     = ['em++']
+ar      = ['emar']
+ranlib  = ['emranlib']
+strip   = ['emstrip']
+pkg-config = ['pkg-config']
+
+[host_machine]
+system     = 'emscripten'
+cpu_family = 'wasm32'
+cpu        = 'wasm32'
+endian     = 'little'
+
+[properties]
+# GLib's meson uses this for some target tests. Without it, meson refuses to
+# run compile-tests because emcc emits .wasm not a native binary the host
+# can exec. We rely on careful option selection (no run-tests) instead.
+needs_exe_wrapper = true
+
+[built-in options]
+default_library = 'static'
+# clang 19+ (emsdk 5.x ships clang 22) turns -Wincompatible-(function-)pointer-types
+# into a hard error. GLib's deprecated gcompletion.c assigns strncmp (size_t arg)
+# to a function pointer typed with `unsigned int` — same 32-bit width on wasm32,
+# so the diagnostic is cosmetic. Demote both to warnings.
+c_args = ['-O2', '-fPIC', '-pthread', '-Wno-error=incompatible-function-pointer-types', '-Wno-error=incompatible-pointer-types']
+cpp_args = ['-O2', '-fPIC', '-pthread']
+# GLib still builds helper executables (gtester, gio tools, …) we don't need;
+# they fail to link on pthread_getname_np / posix_spawnp, which emscripten
+# declares but does not implement. Resolve exactly those two with a real stub
+# object (built before setup). Do NOT relax -sERROR_ON_UNDEFINED_SYMBOLS here:
+# that would make meson's has_function() probes succeed for everything (e.g.
+# C23 free_sized), so GLib would call functions its headers don't declare and
+# the compile would break (gmem.c). The stub keeps every other probe honest.
+c_link_args = ['-pthread', '/src/wasm-stubs.o']
+cpp_link_args = ['-pthread', '/src/wasm-stubs.o']
